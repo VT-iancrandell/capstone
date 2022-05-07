@@ -1,0 +1,230 @@
+---
+title: "GLM Modeling"
+author: "Colin Brant"
+---
+
+```{r}
+#Loads in 205 variables with at least 10,000 data entries
+load('/Users/colinbrant/Downloads/capstone-main/selected_Winsorized_df.Rdata')
+load('/Users/colinbrant/Downloads/capstone-main/NHANES_Clean.RData')
+df <- select
+df$CBD121[df$CBD121 == 777777] <- NA
+df$WHD110[df$WHD110 == 9999 |df$WHD110 == 7777] <- NA
+head(df)
+```
+
+```{r}
+#All quantative variables available in the select dataset
+quant <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI" , "LBDLDL"  , "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC",  "BMXWAIST", "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+quant_df <- select[, quant]
+quant_df$Hypertension <- select$BPQ020
+head(quant_df)
+```
+
+Change coding of Hypertension Response
+```{r}
+quant_df$Hypertension <- as.integer(quant_df$Hypertension)
+quant_df$Hypertension[quant_df$Hypertension == 1] <- 1
+quant_df$Hypertension[quant_df$Hypertension == 2] <- 0
+quant_df$Hypertension <- as.factor(quant_df$Hypertension)
+```
+
+To include gender (RIAGENDR) and age in years (RIDAGEYR)
+```{r}
+quant_df$Age <- select$RIDAGEYR
+quant_df$Gender <- select$RIAGENDR
+Hypertension <- quant_df$Hypertension
+vars <- c('LBDTCSI','CBD121','DBD910','PAD680','WHD020','WHD110','WHD130','BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','BMXWAIST','Age','Gender', 'Hypertension')
+```
+
+Use mice for imputation 
+Drop all rows where Hypertension is missing so we don't impute responses
+```{r}
+library(mice)
+mice_feed <- quant_df[vars]
+mice_feed <- mice_feed[!is.na(mice_feed$Hypertension),]
+split <- sample(1:nrow(mice_feed), round(nrow(mice_feed) * 0.7))
+train_mice <- mice_feed[split,]
+test_mice <- mice_feed[-split,]
+mice_data2 <- mice(train_mice, m=3, seed = 123)
+test_data <- mice(test_mice, m=3, seed = 123)
+```
+
+Make 3 training and testing sets using mice data 
+```{r}
+mice_1 <-complete(mice_data2,1)
+mice_2 <-complete(mice_data2,2)
+mice_3 <-complete(mice_data2,3)
+mice_test1 <- complete(test_data,1)
+mice_test2 <- complete(test_data,2)
+mice_test3 <- complete(test_data,3)
+mice_mod1 <- glm(Hypertension ~ ., data = mice_1, family = binomial)
+mice_mod2 <- glm(Hypertension ~ ., data = mice_2, family = binomial)
+mice_mod3 <- glm(Hypertension ~ ., data = mice_3, family = binomial)
+```
+Make all sets of predictions 
+```{r}
+library(ROCR) 
+library(Metrics)
+preds_11 <- predict(mice_mod1, mice_test1, type = 'response' )
+preds_mice11 <- factor( ifelse(preds_11 > 0.5,
+1, 0))
+#accuracy11 <- sum(preds_mice11 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc11 <- auc(mice_test1$Hypertension, preds_mice11)
+```
+```{r}
+preds_12 <- predict(mice_mod1, mice_test2, type = 'response' )
+preds_mice12 <- factor( ifelse(preds_12 > 0.5,
+1, 0))
+#accuracy12 <- sum(preds_mice12 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc12 <- auc(mice_test2$Hypertension, preds_mice12)
+```
+```{r}
+preds_13 <- predict(mice_mod1, mice_test3, type = 'response' )
+preds_mice13 <- factor( ifelse(preds_13 > 0.5,
+1, 0))
+#accuracy13 <- sum(preds_mice13 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc13 <- auc(mice_test3$Hypertension, preds_mice13)
+```
+```{r}
+preds_21 <- predict(mice_mod2, mice_test1, type = 'response' )
+preds_mice21 <- factor( ifelse(preds_21 > 0.5,
+1, 0))
+#accuracy21 <- sum(preds_mice21 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc21 <- auc(mice_test1$Hypertension, preds_mice21)
+```
+```{r}
+preds_22 <- predict(mice_mod2, mice_test2, type = 'response' )
+preds_mice22 <- factor( ifelse(preds_22 > 0.5,
+1, 0))
+#accuracy22 <- sum(preds_mice22 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc22 <- auc(mice_test2$Hypertension, preds_mice22)
+```
+```{r}
+preds_23 <- predict(mice_mod2, mice_test3, type = 'response' )
+preds_mice23 <- factor( ifelse(preds_23 > 0.5,
+1, 0))
+#accuracy23 <- sum(preds_mice23 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc23 <- auc(mice_test3$Hypertension, preds_mice23)
+```
+```{r}
+preds_31 <- predict(mice_mod3, mice_test1, type = 'response' )
+preds_mice31 <- factor( ifelse(preds_31 > 0.5,
+1, 0))
+#accuracy31 <- sum(preds_mice31 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc31 <- auc(mice_test1$Hypertension, preds_mice31)
+```
+```{r}
+preds_32 <- predict(mice_mod3, mice_test2, type = 'response' )
+preds_mice32 <- factor( ifelse(preds_32 > 0.5,
+1, 0))
+#accuracy32 <- sum(preds_mice32 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc32 <- auc(mice_test2$Hypertension, preds_mice32)
+```
+```{r}
+preds_33 <- predict(mice_mod3, mice_test3, type = 'response' )
+preds_mice33 <- factor( ifelse(preds_33 > 0.5,
+1, 0))
+#accuracy33 <- sum(preds_mice33 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc33 <- auc(mice_test3$Hypertension, preds_mice33)
+```
+Average all predictions
+```{r}
+preds_average <- (preds_11+preds_12+preds_13+preds_21+preds_22+preds_23+preds_31+preds_32+preds_33)/9
+preds_mice <- factor( ifelse(preds_average > 0.5,
+1, 0))
+accuracy_glm <- sum(preds_mice == mice_test1$Hypertension)/nrow(mice_test1)
+auc_glm <- auc(mice_test1$Hypertension, preds_mice)
+```
+Get final accuracy and auc
+```{r}
+print(c(accuracy_glm,auc_glm))
+```
+
+## Model evaluation and visualization 
+```{r}
+mice_mod1$coefficients
+new_viz <- c('Age','LBDTCSI','BMXWAIST','BMXARMC','Gender','Hypertension')
+new_viz_mod <- mice_1[new_viz]
+mice_mod_viz <- glm(Hypertension ~ ., data = new_viz_mod, family = binomial)
+```
+
+
+Get variable importance using the caret package
+```{r}
+library(caret)
+library(dplyr)
+imp <- varImp(mice_mod1)
+#imp <- as.data.frame(varImp(mice_mod1))
+#imp <- data.frame(overall = imp$Overall,
+           #names   = rownames(imp))
+#imp <- imp[order(imp$overall,decreasing = T),]
+#imp
+imp
+```
+
+Unlike the model coefficients Age seems to be the dominant variable with total cholesterol, and BMI factors following.
+
+Now we can plot the AUC curve
+```{r}
+library(ROCR)
+pred <- prediction(preds_11, mice_test1$Hypertension)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+```
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
+
+mod_fit <- train(Hypertension~.,  data=mice_1, method="glm", family="binomial",
+                 trControl = ctrl, tuneLength = 5)
+
+pred = predict(mod_fit, newdata=mice_test1)
+confusionMatrix(data=pred, mice_test1$Hypertension)
+```
+
+Double check accuracy found above using k-fold validation and we get similar results.
+
+
+Rename variables and plot variable importance for both results visualization
+
+```{r}
+row.names(imp) <- c('Total Cholesterol','$ spent on eating out','Number Frozen meals','Minutes sendentary activity','Current self-reported weight','Self reported weight 10 years ago', 'Self reported height age 25', 'Standing Height (cm)','Body Mass Index','Upper leg length (cm)','Upper arm length (cm)','Arm circumference (cm)','Waist circumfrence (cm)', 'Age','Gender')
+```
+
+```{r}
+library(ggplot2)
+var_plot <- ggplot(data = imp, aes(x=rownames(imp),y=Overall)) + geom_bar(position="dodge",stat="identity",width = 0, color = "black") + 
+  coord_flip() + geom_point(color='skyblue') + xlab(" Variable Name")+ ylab("Importance Score") +
+  ggtitle("Variable Importance") + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(panel.background = element_rect(fill = 'white', colour = 'black'))
+```
+```{r}
+var_plot <- ggplot(data = imp, aes(x=reorder(rownames(imp),Overall),y=Overall)) + geom_bar(position="dodge",stat="identity",width = 0.2, color = "black") + 
+  coord_flip() + geom_point(color='skyblue') + xlab("Variable Name")+ylab("Importance Score") +
+  ggtitle("Variable Importance") + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(panel.background = element_rect(fill = 'white', colour = 'black')) + theme(axis.text.x = element_text(size = 10))
+pdf(file="var_plot.pdf", onefile = FALSE) # or other device
+var_plot
+dev.off()
+```
+```{r}
+imp1 <- varImp(mice_mod_viz)
+row.names(imp1) <- c('Age','Arm Circumference','Waist Circumference', 'Total Cholesterol','Gender')
+imp1
+```
+
+```{r}
+var_plot2 <- ggplot(data = imp1, aes(x=reorder(rownames(imp1),Overall),y=Overall)) + geom_bar(position="dodge",stat="identity",width = 0.6, color = "black") + 
+  coord_flip() + geom_point(color='skyblue') + xlab("Variable Name")+ylab("Importance Score") +
+  ggtitle("Variable Importance") + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(panel.background = element_rect(fill = 'white', colour = 'black')) + theme(text = element_text(size = 20))  
+  theme(axis.text.y = element_text(size = 25))+theme(axis.text.x = element_text(size = 25))
+pdf(file="var_plot2.pdf", onefile = FALSE) # or other device
+var_plot2
+dev.off()
+```
+
