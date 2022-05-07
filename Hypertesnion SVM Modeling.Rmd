@@ -1,0 +1,227 @@
+---
+title: "SVM Modeling"
+author: "Colin Brant"
+---
+
+```{r}
+#Loads in 205 variables with at least 10,000 data entries
+load('/Users/colinbrant/Downloads/capstone-main/selected_Winsorized_df.Rdata')
+load('/Users/colinbrant/Downloads/capstone-main/NHANES_Clean.RData')
+df <- select
+df$CBD121[df$CBD121 == 777777] <- NA
+df$WHD110[df$WHD110 == 9999 | df$WHD110 == 7777] <- NA
+head(df)
+```
+
+```{r}
+#All quantative variables available in the select dataset
+quant <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI" , "LBDLDL"  , "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC",   "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+quant_df <- select[, quant]
+quant_df$Hypertension <- select$BPQ020
+quant_df$Waist_Circumference <- select$BMXWAIST
+head(quant_df)
+```
+
+Change coding of Hypertension Response
+```{r}
+quant_df$Hypertension <- as.integer(quant_df$Hypertension)
+quant_df$Hypertension[quant_df$Hypertension == 1] <- 1
+quant_df$Hypertension[quant_df$Hypertension == 2] <- 0
+quant_df$Hypertension <- as.factor(quant_df$Hypertension)
+```
+
+To include gender (RIAGENDR) and age in years (RIDAGEYR)
+```{r}
+quant_df$Age <- select$RIDAGEYR
+quant_df$Gender <- select$RIAGENDR
+Hypertension <- quant_df$Hypertension
+vars <- c('LBDTCSI','CBD121','DBD910','PAD680','WHD020','WHD110','WHD130','BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','Waist_Circumference','Age','Gender', 'Hypertension')
+```
+
+Use mice for imputation 
+Drop all rows where Hypertension is missing so we don't impute responses
+```{r}
+library(mice)
+mice_feed <- quant_df[vars]
+mice_feed <- mice_feed[!is.na(mice_feed$Hypertension),]
+split <- sample(1:nrow(mice_feed), round(nrow(mice_feed) * 0.7))
+train_mice <- mice_feed[split,]
+test_mice <- mice_feed[-split,]
+mice_data2 <- mice(train_mice, m=3, seed = 123)
+test_data <- mice(test_mice, m=3, seed = 123)
+```
+
+
+```{r}
+mice_1 <-complete(mice_data2,1)
+mice_2 <-complete(mice_data2,2)
+mice_3 <-complete(mice_data2,3)
+mice_test1 <- complete(test_data,1)
+mice_test2 <- complete(test_data,2)
+mice_test3 <- complete(test_data,3)
+```
+
+## SVM Model
+
+```{r}
+library(e1071)
+svm_class1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='linear')
+svm_class2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='linear')
+svm_class3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='linear')
+
+```
+
+```{r}
+svm_preds11 <- predict(svm_class1, mice_test1)
+svm_preds12 <- predict(svm_class1, mice_test2)
+svm_preds13 <- predict(svm_class1, mice_test3)
+svm_preds21 <- predict(svm_class2, mice_test1)
+svm_preds22 <- predict(svm_class2, mice_test2)
+svm_preds23 <- predict(svm_class2, mice_test3)
+svm_preds31 <- predict(svm_class3, mice_test1)
+svm_preds32 <- predict(svm_class3, mice_test2)
+svm_preds33 <- predict(svm_class3, mice_test3)
+#svm_preds <- (svm_preds11 + svm_preds12 + svm_preds13 + svm_preds21 + svm_preds22 + svm_preds23 + svm_preds31 + svm_preds32 + svm_preds33)/9
+```
+
+```{r}
+svm_preds_init <- (as.numeric(svm_preds11)-1)+(as.numeric(svm_preds12)-1)+(as.numeric(svm_preds13)-1)+(as.numeric(svm_preds21)-1)+(as.numeric(svm_preds22)-1)+(as.numeric(svm_preds23)-1)+(as.numeric(svm_preds31)-1)+(as.numeric(svm_preds32)-1)+(as.numeric(svm_preds33)-1)
+svm_preds <- factor( ifelse(svm_preds_init > 5,
+1, 0))
+svm_preds
+```
+
+```{r}
+summary(svm_preds)
+```
+
+```{r}
+library(ROCR) 
+library(Metrics)
+accuracy_svm <- sum(svm_preds == mice_test1$Hypertension)/nrow(mice_test1)
+auc_svm <- auc(mice_test1$Hypertension, svm_preds)
+print(c(accuracy_svm,auc_svm))
+```
+
+
+
+```{r}
+#Getting a higher proportion of false positives
+table(mice_test1$Hypertension, svm_preds)
+```
+
+Mice accuracy for SVM: 75.7%
+MICE AUC for SVML: .712
+
+Accuracy is very similar to regular glm but AUC is .2 higher (both improvements)
+
+# SVM Sigmoid Kernel 
+
+```{r}
+svm_class_sig1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='sigmoid', gamma=.001)
+svm_class_sig2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='sigmoid', gamma=.001)
+svm_class_sig3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='sigmoid', gamma=.001)
+```
+```{r}
+svm_preds_sig11 <- predict(svm_class_sig1, mice_test1)
+svm_preds_sig12 <- predict(svm_class_sig1, mice_test2)
+svm_preds_sig13 <- predict(svm_class_sig1, mice_test3)
+svm_preds_sig21 <- predict(svm_class_sig2, mice_test1)
+svm_preds_sig22 <- predict(svm_class_sig2, mice_test2)
+svm_preds_sig23 <- predict(svm_class_sig2, mice_test3)
+svm_preds_sig31 <- predict(svm_class_sig3, mice_test1)
+svm_preds_sig32 <- predict(svm_class_sig3, mice_test2)
+svm_preds_sig33 <- predict(svm_class_sig3, mice_test3)
+```
+
+```{r}
+svm_preds_sig_init <- (as.numeric(svm_preds_sig11)-1)+(as.numeric(svm_preds_sig12)-1)+(as.numeric(svm_preds_sig13)-1)+(as.numeric(svm_preds_sig21)-1)+(as.numeric(svm_preds_sig22)-1)+(as.numeric(svm_preds_sig23)-1)+(as.numeric(svm_preds_sig31)-1)+(as.numeric(svm_preds_sig32)-1)+(as.numeric(svm_preds_sig33)-1)
+svm_preds_sig <- factor( ifelse(svm_preds_sig_init > 5,
+1, 0))
+svm_preds_sig
+```
+
+```{r}
+accuracy_svm_sig <- sum(svm_preds_sig == mice_test1$Hypertension)/nrow(mice_test1)
+auc_sig <- auc(mice_test1$Hypertension, svm_preds_sig)
+print(c(accuracy_svm_sig,auc_sig))
+```
+
+## SVM Radial Kernel 
+```{r}
+svm_class_rad1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='radial', gamma=.001)
+svm_class_rad2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='radial', gamma=.001)
+svm_class_rad3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='radial', gamma=.001)
+
+```
+```{r}
+svm_preds_rad11 <- predict(svm_class_rad1, mice_test1)
+svm_preds_rad12 <- predict(svm_class_rad1, mice_test2)
+svm_preds_rad13 <- predict(svm_class_rad1, mice_test3)
+svm_preds_rad21 <- predict(svm_class_rad2, mice_test1)
+svm_preds_rad22 <- predict(svm_class_rad2, mice_test2)
+svm_preds_rad23 <- predict(svm_class_rad2, mice_test3)
+svm_preds_rad31 <- predict(svm_class_rad3, mice_test1)
+svm_preds_rad32 <- predict(svm_class_rad3, mice_test2)
+svm_preds_rad33 <- predict(svm_class_rad3, mice_test3)
+```
+
+```{r}
+svm_preds_rad_init <- (as.numeric(svm_preds_rad11)-1)+(as.numeric(svm_preds_rad12)-1)+(as.numeric(svm_preds_rad13)-1)+(as.numeric(svm_preds_rad21)-1)+(as.numeric(svm_preds_rad22)-1)+(as.numeric(svm_preds_rad23)-1)+(as.numeric(svm_preds_rad31)-1)+(as.numeric(svm_preds_rad32)-1)+(as.numeric(svm_preds_rad33)-1)
+svm_preds_rad <- factor( ifelse(svm_preds_rad_init > 5,
+1, 0))
+svm_preds_rad
+```
+
+```{r}
+accuracy_svm_rad <- sum(svm_preds_rad == mice_test1$Hypertension)/nrow(mice_test1)
+auc_rad <- auc(mice_test1$Hypertension, svm_preds_rad)
+print(c(accuracy_svm_rad,auc_rad))
+```
+
+
+Best Accuracy/AUC is from the linear kernel SVM 
+
+
+## Model investigation and Visualization 
+Rename BMXWAIST in order to use visualization in presentation/results
+```{r}
+
+plot(svm_class1,mice_1[1:1000,], Age ~ Waist_Circumference, fill=TRUE)
+```
+```{r}
+length(mice_1$Waist_Circumference_cm)
+length(mice_1$Age)
+```
+
+```{r}
+svm_plot <- plot(svm_class1,mice_1[1:1000,], Age ~ BMXWAIST, fill=TRUE)
+pdf(file="svm_plot.pdf", onefile = FALSE) # or other device
+svm_plot
+dev.off()
+```
+
+
+From the SVM classification plot we can see that as age and waist size increases so does the likelihood of Hypertension. We can also see that there are more incorrect classifications among the 1's or the Hypertension classifications.
+
+
+Get predictor importance from SVM model
+```{r}
+library(rminer)
+M <- fit(Hypertension~., data=mice_1, model="svm", kpar=list(sigma=0.001), C=2)
+svm.imp <- Importance(M, data=mice_1)
+```
+
+```{r}
+svm.imp
+```
+
+From this we can see that age is by far the strongest predictor followed by waist size and total cholesterol.
+
+
+```{r}
+demo_df <- mice_1
+demo_df$predicted <- 
+```
+
+
