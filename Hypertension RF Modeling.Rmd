@@ -1,0 +1,161 @@
+---
+title: "Random Forest Modeling"
+author: "Colin Brant"
+---
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+#Loads in 205 variables with at least 10,000 data entries
+load('/Users/colinbrant/Downloads/capstone-main/selected_Winsorized_df.Rdata')
+load('/Users/colinbrant/Downloads/capstone-main/NHANES_Clean.RData')
+df <- select
+df$CBD121[df$CBD121 == 777777] <- NA
+df$WHD110[df$WHD110 == 9999 | df$WHD110 == 7777] <- NA
+head(df)
+```
+
+```{r}
+#All quantative variables available in the select dataset
+quant <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI" , "LBDLDL"  , "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC", "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+quant_df <- select[, quant]
+quant_df$Hypertension <- select$BPQ020
+quant_df$Waist_Circumference <- select$BMXWAIST
+head(quant_df)
+```
+
+Change coding of Hypertension Response
+```{r}
+quant_df$Hypertension <- as.integer(quant_df$Hypertension)
+quant_df$Hypertension[quant_df$Hypertension == 1] <- 1
+quant_df$Hypertension[quant_df$Hypertension == 2] <- 0
+quant_df$Hypertension <- as.factor(quant_df$Hypertension)
+```
+
+To include gender (RIAGENDR) and age in years (RIDAGEYR)
+```{r}
+quant_df$Age <- select$RIDAGEYR
+quant_df$Gender <- select$RIAGENDR
+Hypertension <- quant_df$Hypertension
+vars <- c('LBDTCSI','CBD121','DBD910','PAD680','WHD020','WHD110','WHD130','BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','Waist_Circumference','Age','Gender', 'Hypertension')
+```
+
+Use mice for imputation 
+Drop all rows where Hypertension is missing so we don't impute responses
+```{r}
+library(mice)
+mice_feed <- quant_df[vars]
+mice_feed <- mice_feed[!is.na(mice_feed$Hypertension),]
+split <- sample(1:nrow(mice_feed), round(nrow(mice_feed) * 0.7))
+train_mice <- mice_feed[split,]
+test_mice <- mice_feed[-split,]
+mice_data2 <- mice(train_mice, m=3, seed = 123)
+test_data <- mice(test_mice, m=3, seed = 123)
+```
+
+Make three different training and testing sets from MICE data
+```{r}
+mice_1 <-complete(mice_data2,1)
+mice_2 <-complete(mice_data2,2)
+mice_3 <-complete(mice_data2,3)
+mice_test1 <- complete(test_data,1)
+mice_test2 <- complete(test_data,2)
+mice_test3 <- complete(test_data,3)
+```
+
+## Random Forest Models
+Make three random forest classifiers
+```{r}
+library(randomForest)
+rf_class1 <- randomForest(Hypertension ~ ., data = mice_1, importance=TRUE)
+rf_class2 <- randomForest(Hypertension ~ ., data = mice_2)
+rf_class3 <- randomForest(Hypertension ~ ., data = mice_3)
+
+```
+
+
+```{r}
+plot(rf_class1)
+```
+Run predictions using each training set on every rf model
+```{r}
+rf_preds11 <- predict(rf_class1, mice_test1,type = 'prob')
+rf_preds12 <- predict(rf_class1, mice_test2,type='prob')
+rf_preds13 <- predict(rf_class1, mice_test3,type = 'prob')
+rf_preds21 <- predict(rf_class2, mice_test1, type = 'prob')
+rf_preds22 <- predict(rf_class2, mice_test2, type = 'prob')
+rf_preds23 <- predict(rf_class2, mice_test3, type = 'prob')
+rf_preds31 <- predict(rf_class3, mice_test1, type = 'prob')
+rf_preds32 <- predict(rf_class3, mice_test2, type = 'prob')
+rf_preds33 <- predict(rf_class3, mice_test3, type = 'prob')
+
+```
+Factor predictions into binary outcomes
+```{r}
+rf_preds_init <- (rf_preds11[,2] + rf_preds12[,2] + rf_preds13[,2] + rf_preds21[,2] + rf_preds22[,2] + rf_preds23[,2] + rf_preds31[,2] + rf_preds32[,2] + rf_preds33[,2])/9
+rf_preds <- factor( ifelse(rf_preds_init > .5,
+1, 0))
+
+```
+
+Get final accuracy and auc measurment
+```{r}
+library(Metrics)
+accuracy_rf <- sum(rf_preds == mice_test1$Hypertension)/nrow(mice_test1)
+auc_rf <- auc(mice_test1$Hypertension, rf_preds)
+print(c(accuracy_rf,auc_rf))
+```
+
+```{r}
+table(rf_preds, mice_test1$Hypertension)
+```
+
+
+## Model Investigation and Visualization 
+```{r}
+varImpPlot(rf_class1)
+```
+Similar to other types of modeling we get age as the most important predictor followed by waist size. However, this time total cholesterol is not as important within the random forest model as it is in other types of models.
+
+
+
+```{r}
+library(randomForestExplainer)
+rf_plot <- plot_predict_interaction(rf_class1, mice_1, "Age", 'Waist_Circumference', main = '      Random Forest Prediction')+ theme(text = element_text(size = 20)) + theme(axis.text.y = element_text(size = 25))+theme(axis.text.x = element_text(size = 25))
+
+pdf(file="rf_plot.pdf", onefile = FALSE) # or other device
+rf_plot
+dev.off()
+```
+From this we can see that a good cutoff age for classification is about 55. Furthermore, we can see that values of BMXWAIST can accelerate the risk of Hypertension by about 5-10 years.
+
+Distribution of responses flips at age 55 and older
+```{r}
+h <- c('Hypertension','Age')
+hyp_age <- mice_1[h]
+hyp_age <- filter(hyp_age, Age > 55)
+summary(hyp_age$Hypertension)
+```
+```{r}
+barplot(table(hyp_age$Hypertension))
+```
+Quick check to see what gender is coded as which (1 is male, 2 is female)
+```{r}
+g <- c('Gender','Waist_Circumference', 'BMXHT')
+gen_waist <- mice_1[g]
+gen1_waist <- filter(gen_waist, Gender == 1)
+gen2_waist <- filter(gen_waist, Gender == 2)
+```
+
+```{r}
+mean(gen1_waist$Waist_Circumference)
+mean(gen1_waist$BMXHT)
+```
+
+```{r}
+mean(gen2_waist$Waist_Circumference)
+mean(gen2_waist$BMXHT)
+```
+
