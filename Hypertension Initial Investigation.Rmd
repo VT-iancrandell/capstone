@@ -1,0 +1,764 @@
+---
+title: "Hypertension Initial Investigation"
+author: "Colin Brant"
+---
+
+```{r}
+#Loads in 205 variables with at least 10,000 data entries
+load('/Users/colinbrant/Downloads/capstone-main/selected_Winsorized_df.Rdata')
+load('/Users/colinbrant/Downloads/capstone-main/NHANES_Clean.RData')
+df <- select
+head(df)
+```
+
+```{r}
+#Look at three possible hypertension responses
+hyper <- df_full[, c('BPD035', 'BPQ020', 'BPQ040A')]
+summary(hyper)
+#Age told you have hypertension and Are you taking prescription for hypertension have same
+#number of missing values.
+
+```
+```{r}
+head(hyper)
+```
+Check for missing values to fill in
+```{r}
+for (row in 1:nrow(hyper)){
+  age <- hyper[row, 1]
+  response <- hyper[row,2]
+  if (is.null(age)==FALSE){
+    response = 1
+  }
+}
+summary(hyper)
+#BPQ020 is ready to use as resonse variable 
+```
+
+
+```{r}
+#All quantative variables available in the select dataset
+quant <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI" , "LBDLDL"  , "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC",  "BMXWAIST", "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+
+quant_df <- select[, quant]
+quant_df$Hypertension <- select$BPQ020
+
+head(quant_df)
+
+
+```
+
+Create table using tableone library
+```{r}
+library(tableone)
+tab1 <- CreateTableOne(data = quant_df)
+```
+
+
+```{r}
+summary(tab1)
+```
+
+```{r}
+library(tableone)
+tab2 <- CreateTableOne(data = quant_df, strata = 'Hypertension', smd=TRUE)
+tab2
+```
+
+
+Now Check potential LDL cholesteral responses
+
+```{r}
+#Most recent cholesterol number 
+LDL <- df_full['DID320']
+summary(LDL)
+```
+
+
+```{r}
+#Ever been told cholesterol level is high
+Cholesterol <- df_full['BPQ080']
+summary(Cholesterol)
+```
+For now it seems like the best cholesterol is BPQ080 which is binary variable pertaining to if the subject has ever been told they have high cholesterol. 
+
+
+Start to experiment with how to begin modeling 
+```{r}
+#Renaming variables in order to include graphic in midterm presentation
+quant_df['Total Cholesterol'] <- quant_df['LBXTR']
+quant_df['Fasting Glucose'] <- quant_df['LBXGLU']
+quant_df['BMI'] <- quant_df['BMXBMI']
+quant_df['LDL Cholesterol'] <- quant_df['LBDLDL']
+ex_vars <- c('Total Cholesterol', 'Fasting Glucose', 'BMI', 'LDL Cholesterol', 'Hypertension')
+ex_df <- quant_df[ex_vars]
+```
+
+```{r}
+#Graphic for midterm presentation
+head(ex_df)
+```
+```{r}
+#Grpahic for midterm presentation
+library(naniar)
+non_missing2 <- gg_miss_upset(ex_df)
+pdf(file="non_missing2.pdf", onefile = FALSE) # or other device
+non_missing2
+dev.off()
+```
+
+```{r}
+#Graphic for midterm presentation 
+library(ggplot2)
+library(svglite)
+
+counts1 <- colSums(!is.na(ex_df))
+bar_pres <- barplot(counts_bar, main="Non missing Data by Variable",, xlab = 'Variable', ylab = 'Non-missing Rows',names.arg=c('Cholesterol', 'Hypertension','BMI', 'LDL Cholesterol', 'Glucose') )
+pdf(file="bar_pres.pdf") # or other device
+bar_pres
+dev.off()
+```
+
+```{r}
+test <- barplot(counts1)
+pdf(file="test.pdf") # or other device
+test
+dev.off()
+```
+
+
+## Initial Modeling 
+First form the initial logistic regression model with all quantatative predictors with 10,000 entries.
+
+Can't simply remove all missing values because then we are only left with rows containing the value of 1 for our binary response variable Hypertension.
+
+```{r}
+example <- na.omit(quant_df)
+CreateTableOne(data=example)
+```
+From this we can see that simply using na.omit will not work due to the fact that only Hypertension variables with the value of 1 are included. 
+
+```{r}
+library(mice)
+library(VIM)
+```
+```{r}
+quant_df <- quant_df[-c(41:44)]
+quant_df
+```
+
+Experiment with different ways to handle missing data 
+```{r}
+mice_data <- mice(quant_df, m=3, seed = 123)
+```
+
+```{r}
+print(mice_data)
+```
+When running the mice function it found the LBD predictors pertaining to cholesterol and glucose to be colinnear so it did not impute values for these
+```{r}
+test1 <- complete(mice_data,1)
+colSums(is.na(test1))
+```
+
+```{r}
+no_nas <- na.omit(test1)
+no_nas
+```
+From this we can see we have a similar distribution of Hypertension responses as the original data we also have over 14,000 rows of data
+```{r}
+mice_table <- CreateTableOne(data = no_nas)
+summary(mice_table)
+```
+
+Original LBDHDD: mean=53, sd=1e+01    MICE: mean=54, sd=1e+01
+Original LBDHDDSI: mean=1, sd=4e-01   MICE: SAME
+Original LBXTR: mean=110, sd=7e+01    MICE: mean=107, sd=6e+01
+Original LBDTRSI: mean=1, sd=7e-01    MICE: SAME
+Original LBDLDL: mean=108, sd=3e+01   MICE:SAME
+LBDLDDLSI: SAME
+Original LBXTC: mean=181, sd=4e+01    MICE: mean=183, sd=4e+01
+
+From initial investigation using the tableOne package it looks like the MICE imputation does not significantly change the distribution of our data.
+
+
+
+Stepwise regression experimentation
+```{r}
+mice_mod1 <- glm(Hypertension ~ ., data = no_nas, family = 'binomial')
+summary(mice_mod1)
+```
+Now experiment with stepwise regression 
+```{r}
+step1 <- step(mice_mod1)
+```
+
+```{r}
+coef(step1)
+```
+According to default step method with MICE imputation these are the most important variables
+
+LBDLDL- LDL Cholesterol mg/dl
+LBDTCSI- Total Cholesterol mmol/L
+LBXGLU- Fasting Glucose *
+CBD121- Money spent on eating out **
+CBD131- Money spent on carryout/delivered food
+DBD910- Number of frozen meals/pizaa in last 30 days
+PAQ670- Days moderate recreational activity 
+PAD680- Minutes sendentary activity *
+WHD020 - Current self reported weight (pounds)
+WHD110 - Self reported weight 10 years ago (pounds) *
+WHD130 - Self reported height age 25 (inches) *
+WHD140 - Self reported greatest weight (pounds)
+WHQ150 - Age when heaviest weight 
+BMXHT - Standing Height (cm)
+BMXBMI - Body mass index
+BMXLEG - Upper leg length (cm)
+BMXARML - Upper arm length (cm)
+BMXARMC - Arm circumfrence (cm)
+BMXWAIST - Waist circumfrence (cm)
+WTMEC2YR - Full sample 2 year MEC weight **
+
+
+
+Possibly experiment with including only relatively full variables
+```{r}
+summary(tab1)
+```
+Good percent cutoff might be 40% missingness
+
+```{r}
+vars40 <- c('LBDHDD', 'LBDHDDSI', 'LBXTC', 'LBDTCSI', 'CBD121', 'CBD131', 'DBD900', 'DBD905','DBD910', 'PAD680', 'WHD010', 'WHD020', 'WHD050', 'WHQ150', 'BMXWT', 'BMXHT', 'BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC', 'BMXWAIST', 'INDFMPIR', 'WTINT2YR', 'WTMEC2YR', 'Hypertension')
+per40_df <- quant_df[vars40]
+```
+
+```{r}
+per40_df <- na.omit(per40_df)
+CreateTableOne(data=per40_df)
+```
+Using the 40 percent cutoff for missing data there is a much larger number of rows available and a very similar distribution of Hypertension response values.
+
+```{r}
+per40_mod1 <- glm(Hypertension ~ ., data = per40_df, family = 'binomial')
+```
+
+```{r}
+step_40 <- step(per40_mod1)
+```
+
+```{r}
+coef(step_40)
+```
+
+LBDHDDSI
+LBTCSI
+PAD680
+WHD050
+WHQ150
+BMXHT
+BMXBMI
+BMXLEG
+BMXARML
+BMXWAIST
+WTMEC2YR - as weight
+
+
+
+## Investigation of WTMEC2YR weight variable 
+From the NHANES website:
+
+Weights are created in NHANES to account for the complex survey design (including oversampling), survey non-response, and post-stratification adjustment to match total population counts from the Census Bureau. When a sample is weighted in NHANES it is representative of the U.S. civilian noninstitutionalized resident population. A sample weight is assigned to each sample person. It is a measure of the number of people in the population represented by that sample person.
+
+So most likely this should be used a weight in any models created
+
+
+## Investigation into types of missingness
+Hard to look at missingness with a large number of columns so use important factors identified above 
+LBDLDL- LDL Cholesterol mg/dl
+LBDTCSI- Total Cholesterol
+LBXGLU- Fasting Glucose *
+CBD121- Money spent on eating out **
+CBD131- Money spent on carryout/delivered food
+DBD910- Number of frozen meals/pizaa in last 30 days
+PAQ670- Days moderate recreational activity 
+PAD680- Minutes sendentary activity *
+WHD020 - Current self reported weight (pounds)
+WHD110 - Self reported weight 10 years ago (pounds) *
+WHD130 - Self reported height age 25 (inches) *
+WHD140 - Self reported greatest weight (pounds)
+WHQ150 - Age when heaviest weight 
+BMXHT - Standing Height (cm)
+BMXBMI - Body mass index
+BMXLEG - Upper leg length (cm)
+BMXARML - Upper arm length (cm)
+BMXARMC - Arm circumfrence (cm)
+BMXWAIST - Waist circumfrence (cm)
+WTMEC2YR - Full sample 2 year MEC weight **
+```{r}
+library(finalfit)
+LBD <- c('LBDLDL','LBDTCSI','LBXGLU')
+missing_pattern(quant_df[LBD])
+```
+From this it looks like the data is not missing at random so likely only 1 or 2 cholesterol variables should be used.
+Might have to only include total cholesterol
+```{r}
+money <- c('CBD121', 'CBD131')
+missing_pattern(quant_df[money])
+```
+Gnerally are filled our together so we can just use CBD121.
+
+```{r}
+pizza_activty <- c('DBD910','PAQ670','PAD680')
+missing_pattern(quant_df[pizza_activty])
+```
+A lot of instance where PAD680 is present but not PAQ670.
+
+```{r}
+WHD <- c('WHD020','WHD110','WHD130', 'WHD140', 'WHQ150')
+missing_pattern(quant_df[WHD])
+```
+In general not as many strong patterns but WHD150 and possibly WHD140 can likely be removed. Should be looked at with skepticism due to self responses about weight however.
+
+```{r}
+BMX <- c('BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','BMXWAIST')
+missing_pattern(quant_df[BMX])
+```
+All BMX variables save to include.
+
+
+## Build initial glm models
+Change the Hypertension variable coding to 1 for Hypertension and 0 for no hypertension just for smiplicity 
+```{r}
+quant_df$Hypertension <- as.integer(quant_df$Hypertension)
+quant_df$Hypertension[quant_df$Hypertension == 1] <- 1
+quant_df$Hypertension[quant_df$Hypertension == 2] <- 0
+quant_df$Hypertension <- as.factor(quant_df$Hypertension)
+
+```
+```{r}
+quant_df$Hypertension
+```
+
+To include gender (RIAGENDR) and age in years (RIDAGEYR)
+```{r}
+quant_df$Age <- select$RIDAGEYR
+quant_df$Gender <- select$RIAGENDR
+Hypertension <- quant_df$Hypertension
+vars <- c('LBDTCSI','CBD121','DBD910','PAD680','WHD020','WHD110','WHD130','BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','BMXWAIST','Age','Gender', 'Hypertension')
+```
+Use mice for imputation 
+Drop all rows where Hypertension is missing so we don't impute responses
+```{r}
+mice_feed <- quant_df[vars]
+mice_feed <- mice_feed[!is.na(mice_feed$Hypertension),]
+split <- sample(1:nrow(mice_feed), round(nrow(mice_feed) * 0.7))
+train_mice <- mice_feed[split,]
+test_mice <- mice_feed[-split,]
+mice_data2 <- mice(train_mice, m=3, seed = 123)
+```
+```{r}
+test_data <- mice(test_mice, m=3, seed = 123)
+```
+
+
+
+```{r}
+mice_1 <-complete(mice_data2,1)
+mice_2 <-complete(mice_data2,2)
+mice_3 <-complete(mice_data2,3)
+mice_test1 <- complete(test_data,1)
+mice_test2 <- complete(test_data,2)
+mice_test3 <- complete(test_data,3)
+mice_mod1 <- glm(Hypertension ~ ., data = mice_1, family = binomial)
+mice_mod2 <- glm(Hypertension ~ ., data = mice_2, family = binomial)
+mice_mod3 <- glm(Hypertension ~ ., data = mice_3, family = binomial)
+```
+
+```{r}
+library(ROCR) 
+library(Metrics)
+preds_11 <- predict(mice_mod1, mice_test1, type = 'response' )
+preds_mice11 <- factor( ifelse(preds_11 > 0.5,
+1, 0))
+#accuracy11 <- sum(preds_mice11 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc11 <- auc(mice_test1$Hypertension, preds_mice11)
+```
+```{r}
+preds_12 <- predict(mice_mod1, mice_test2, type = 'response' )
+preds_mice12 <- factor( ifelse(preds_12 > 0.5,
+1, 0))
+#accuracy12 <- sum(preds_mice12 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc12 <- auc(mice_test2$Hypertension, preds_mice12)
+```
+```{r}
+preds_13 <- predict(mice_mod1, mice_test3, type = 'response' )
+preds_mice13 <- factor( ifelse(preds_13 > 0.5,
+1, 0))
+#accuracy13 <- sum(preds_mice13 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc13 <- auc(mice_test3$Hypertension, preds_mice13)
+```
+```{r}
+preds_21 <- predict(mice_mod2, mice_test1, type = 'response' )
+preds_mice21 <- factor( ifelse(preds_21 > 0.5,
+1, 0))
+#accuracy21 <- sum(preds_mice21 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc21 <- auc(mice_test1$Hypertension, preds_mice21)
+```
+```{r}
+preds_22 <- predict(mice_mod2, mice_test2, type = 'response' )
+preds_mice22 <- factor( ifelse(preds_22 > 0.5,
+1, 0))
+#accuracy22 <- sum(preds_mice22 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc22 <- auc(mice_test2$Hypertension, preds_mice22)
+```
+```{r}
+preds_23 <- predict(mice_mod2, mice_test3, type = 'response' )
+preds_mice23 <- factor( ifelse(preds_23 > 0.5,
+1, 0))
+#accuracy23 <- sum(preds_mice23 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc23 <- auc(mice_test3$Hypertension, preds_mice23)
+```
+```{r}
+preds_31 <- predict(mice_mod3, mice_test1, type = 'response' )
+preds_mice31 <- factor( ifelse(preds_31 > 0.5,
+1, 0))
+#accuracy31 <- sum(preds_mice31 == mice_test1$Hypertension)/nrow(mice_test1)
+#auc31 <- auc(mice_test1$Hypertension, preds_mice31)
+```
+```{r}
+preds_32 <- predict(mice_mod3, mice_test2, type = 'response' )
+preds_mice32 <- factor( ifelse(preds_32 > 0.5,
+1, 0))
+#accuracy32 <- sum(preds_mice32 == mice_test2$Hypertension)/nrow(mice_test2)
+#auc32 <- auc(mice_test2$Hypertension, preds_mice32)
+```
+```{r}
+preds_33 <- predict(mice_mod3, mice_test3, type = 'response' )
+preds_mice33 <- factor( ifelse(preds_33 > 0.5,
+1, 0))
+#accuracy33 <- sum(preds_mice33 == mice_test3$Hypertension)/nrow(mice_test3)
+#auc33 <- auc(mice_test3$Hypertension, preds_mice33)
+```
+
+```{r}
+average_accuracy <- (accuracy11 + accuracy12 + accuracy13 + accuracy21 + accuracy22 + accuracy23 + accuracy31 + accuracy32 + accuracy33)/9
+average_auc <- (auc11 + auc12 + auc13 + auc21 + auc22 + auc23 + auc31 + auc32 + auc33)/9
+```
+
+```{r}
+preds_average <- (preds_11+preds_12+preds_13+preds_21+preds_22+preds_23+preds_31+preds_32+preds_33)/9
+preds_mice <- factor( ifelse(preds_average > 0.5,
+1, 0))
+accuracy_glm <- sum(preds_mice == mice_test1$Hypertension)/nrow(mice_test1)
+auc_glm <- auc(mice_test1$Hypertension, preds_mice)
+```
+
+```{r}
+print(c(accuracy_glm,auc_glm))
+```
+
+
+
+Now we can so testing training split to see how accurate the MICE model is.
+```{r}
+
+set.seed(1)
+accuracy_1 <-complete(mice_data2,1)
+#accuracy_1$Hypertension <- as.integer(accuracy_1$Hypertension)
+#accuracy_1$Hypertension[accuracy_1$Hypertension == 1] <- 1
+#accuracy_1$Hypertension[accuracy_1$Hypertension == 2] <- 0
+split <- sample(1:nrow(accuracy_1), round(nrow(accuracy_1) * 0.7))
+train_df <- accuracy_1[split,]
+test_df <- accuracy_1[-split,]
+accuracy_1
+```
+```{r}
+CreateTableOne(data=train_df)
+```
+
+```{r}
+mice_mod1 <- glm(Hypertension ~ ., data = train_df, family = binomial)
+preds_m <- predict(mice_mod1, test_df, type = 'response' )
+#preds_class <- factor( ifelse(preds > 0.5,
+#1, 0))
+preds_mice <- factor( ifelse(preds_m > 0.5,
+1, 0))
+accuracy <- sum(preds_mice == test_df$Hypertension)/nrow(test_df)
+accuracy
+```
+
+```{r}
+
+auc(test_df$Hypertension, preds_mice)
+```
+
+
+
+
+
+
+## Inital less 40 percent missing subset model 
+LBDHDDSI
+LBTCSI
+PAD680
+WHD050
+WHQ150
+BMXHT
+BMXBMI
+BMXLEG
+BMXARML
+BMXWAIST
+WTMEC2YR - as weight
+```{r}
+per_vars <- c('LBDHDDSI','LBDTCSI','PAD680','WHD050','WHQ150','BMXHT','BMXBMI','BMXLEG',
+              'BMXARML','BMXWAIST','Age','Gender', 'Hypertension', 'WTMEC2YR')
+per_subset <- quant_df[per_vars]
+per_subset <- na.omit(per_subset)
+per_subset
+```
+Testing traning split
+```{r}
+set.seed(123)
+split <- sample(1:nrow(per_subset), round(nrow(per_subset) * 0.7))
+train_per <- per_subset[split,]
+test_per <- per_subset[-split,]
+per_mod <- glm(Hypertension ~ ., data = train_per, family = binomial)
+per_mod_weights <- glm(Hypertension ~ ., data = train_per, family = binomial, weights = WTMEC2YR)
+```
+Now get accuracy using a threshold of 0.50
+```{r}
+table(train_per$Hypertension)
+```
+
+```{r}
+preds <- predict(per_mod, test_per, type = 'response' )
+#preds_class <- factor( ifelse(preds > 0.5,
+#1, 0))
+preds_class <- as.factor(1*(preds > .50) + 0)
+test_response <- test_per$Hypertension
+accuracy <- sum(preds_class == test_response)/nrow(test_per)
+accuracy
+```
+```{r}
+auc(test_response, preds_class)
+```
+
+```{r}
+preds_w <- predict(per_mod_weights, test_per, type = 'response' )
+#preds_class <- factor( ifelse(preds > 0.5,
+#1, 0))
+preds_class_w <- as.factor(1*(preds_w > .50) + 0)
+test_response <- test_per$Hypertension
+accuracy_w <- sum(preds_class_w == test_response)/nrow(test_per)
+accuracy_w
+```
+
+```{r}
+auc(test_response, preds_class_w)
+```
+
+When weights are added to the model accuracy is hurt but auc is higher.
+
+
+Subset version doesn't perform to much worse than the mice model so experimenting with more subsets may be a good idea 
+```{r}
+summary(CreateTableOne(data=quant_df))
+```
+
+```{r}
+sub_vars <- c('LBDHDDSI','LBDTCSI','LBDLDL','LBXGLU','PAD680','PAD675','WHD050','WHQ150','BMXHT','BMXBMI','BMXLEG','BMXARML','BMXWAIST','Age','Gender', 'Hypertension')
+sub_df <- quant_df[sub_vars]
+sub_df <- na.omit(sub_df)
+sub_df
+```
+Here we still have around 5,000 rows so we can check new model performance with added variables
+
+```{r}
+set.seed(123)
+split <- sample(1:nrow(sub_df), round(nrow(sub_df) * 0.7))
+train_sub <- sub_df[split,]
+test_sub <- sub_df[-split,]
+sub_mod <- glm(Hypertension ~ ., data = train_sub, family = binomial)
+```
+
+```{r}
+sub_preds <- predict(sub_mod, test_sub, type = 'response' )
+#preds_class <- factor( ifelse(preds > 0.5,
+#1, 0))
+preds_subs <- as.factor(1*(sub_preds > .50) + 0)
+test_response <- test_sub$Hypertension
+accuracy <- sum(preds_subs == test_response)/nrow(test_sub)
+accuracy
+```
+
+```{r}
+auc(test_response, preds_subs)
+```
+
+## SVM Model
+
+```{r}
+library(e1071)
+svm_class1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='linear')
+svm_class2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='linear')
+svm_class3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='linear')
+
+```
+
+```{r}
+svm_preds11 <- predict(svm_class1, mice_test1)
+svm_preds12 <- predict(svm_class1, mice_test2)
+svm_preds13 <- predict(svm_class1, mice_test3)
+svm_preds21 <- predict(svm_class2, mice_test1)
+svm_preds22 <- predict(svm_class2, mice_test2)
+svm_preds23 <- predict(svm_class2, mice_test3)
+svm_preds31 <- predict(svm_class3, mice_test1)
+svm_preds32 <- predict(svm_class3, mice_test2)
+svm_preds33 <- predict(svm_class3, mice_test3)
+#svm_preds <- (svm_preds11 + svm_preds12 + svm_preds13 + svm_preds21 + svm_preds22 + svm_preds23 + svm_preds31 + svm_preds32 + svm_preds33)/9
+```
+
+```{r}
+svm_preds_init <- (as.numeric(svm_preds11)-1)+(as.numeric(svm_preds12)-1)+(as.numeric(svm_preds13)-1)+(as.numeric(svm_preds21)-1)+(as.numeric(svm_preds22)-1)+(as.numeric(svm_preds23)-1)+(as.numeric(svm_preds31)-1)+(as.numeric(svm_preds32)-1)+(as.numeric(svm_preds33)-1)
+svm_preds <- factor( ifelse(svm_preds_init > 5,
+1, 0))
+svm_preds
+```
+
+```{r}
+summary(svm_preds)
+```
+
+```{r}
+accuracy_svm <- sum(svm_preds == mice_test1$Hypertension)/nrow(mice_test1)
+auc_svm <- auc(mice_test1$Hypertension, svm_preds)
+print(c(accuracy_svm,auc_svm))
+```
+
+
+
+```{r}
+#Getting a higher proportion of false positives
+table(mice_test1$Hypertension, svm_preds)
+```
+
+Mice accuracy for SVM: 75.7%
+MICE AUC for SVML: .712
+
+Accuracy is very similar to regular glm but AUC is .2 higher (both improvements)
+
+```{r}
+#tune.out <- tune(svm, Hypertension ~ ., data = mice_1[1:10000,], kernel = "linear", ranges = list(cost = c( 0.1, 1, 5, 10)))
+#summary(tune.out)
+```
+From using first 10000 we get the best performance is from a cost of 10
+
+# SVM Sigmoid Kernel 
+
+```{r}
+svm_class_sig1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='sigmoid', gamma=.001)
+svm_class_sig2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='sigmoid', gamma=.001)
+svm_class_sig3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='sigmoid', gamma=.001)
+```
+```{r}
+svm_preds_sig11 <- predict(svm_class_sig1, mice_test1)
+svm_preds_sig12 <- predict(svm_class_sig1, mice_test2)
+svm_preds_sig13 <- predict(svm_class_sig1, mice_test3)
+svm_preds_sig21 <- predict(svm_class_sig2, mice_test1)
+svm_preds_sig22 <- predict(svm_class_sig2, mice_test2)
+svm_preds_sig23 <- predict(svm_class_sig2, mice_test3)
+svm_preds_sig31 <- predict(svm_class_sig3, mice_test1)
+svm_preds_sig32 <- predict(svm_class_sig3, mice_test2)
+svm_preds_sig33 <- predict(svm_class_sig3, mice_test3)
+```
+
+```{r}
+svm_preds_sig_init <- (as.numeric(svm_preds_sig11)-1)+(as.numeric(svm_preds_sig12)-1)+(as.numeric(svm_preds_sig13)-1)+(as.numeric(svm_preds_sig21)-1)+(as.numeric(svm_preds_sig22)-1)+(as.numeric(svm_preds_sig23)-1)+(as.numeric(svm_preds_sig31)-1)+(as.numeric(svm_preds_sig32)-1)+(as.numeric(svm_preds_sig33)-1)
+svm_preds_sig <- factor( ifelse(svm_preds_sig_init > 5,
+1, 0))
+svm_preds_sig
+```
+
+```{r}
+accuracy_svm_sig <- sum(svm_preds_sig == mice_test1$Hypertension)/nrow(mice_test1)
+auc_sig <- auc(mice_test1$Hypertension, svm_preds_sig)
+print(c(accuracy_svm_sig,auc_sig))
+```
+## SVM Radial Kernel 
+```{r}
+svm_class_rad1 <- svm(Hypertension ~ ., data = mice_1,type='C-classification',kernel='radial', gamma=.001)
+svm_class_rad2 <- svm(Hypertension ~ ., data = mice_2,type='C-classification',kernel='radial', gamma=.001)
+svm_class_rad3 <- svm(Hypertension ~ ., data = mice_3,type='C-classification',kernel='radial', gamma=.001)
+
+```
+```{r}
+svm_preds_rad11 <- predict(svm_class_rad1, mice_test1)
+svm_preds_rad12 <- predict(svm_class_rad1, mice_test2)
+svm_preds_rad13 <- predict(svm_class_rad1, mice_test3)
+svm_preds_rad21 <- predict(svm_class_rad2, mice_test1)
+svm_preds_rad22 <- predict(svm_class_rad2, mice_test2)
+svm_preds_rad23 <- predict(svm_class_rad2, mice_test3)
+svm_preds_rad31 <- predict(svm_class_rad3, mice_test1)
+svm_preds_rad32 <- predict(svm_class_rad3, mice_test2)
+svm_preds_rad33 <- predict(svm_class_rad3, mice_test3)
+```
+
+```{r}
+svm_preds_rad_init <- (as.numeric(svm_preds_rad11)-1)+(as.numeric(svm_preds_rad12)-1)+(as.numeric(svm_preds_rad13)-1)+(as.numeric(svm_preds_rad21)-1)+(as.numeric(svm_preds_rad22)-1)+(as.numeric(svm_preds_rad23)-1)+(as.numeric(svm_preds_rad31)-1)+(as.numeric(svm_preds_rad32)-1)+(as.numeric(svm_preds_rad33)-1)
+svm_preds_rad <- factor( ifelse(svm_preds_rad_init > 5,
+1, 0))
+svm_preds_rad
+```
+
+```{r}
+accuracy_svm_rad <- sum(svm_preds_rad == mice_test1$Hypertension)/nrow(mice_test1)
+auc_rad <- auc(mice_test1$Hypertension, svm_preds_rad)
+print(c(accuracy_svm_rad,auc_rad))
+```
+
+
+## Random Forest Models
+```{r}
+library(randomForest)
+rf_class1 <- randomForest(Hypertension ~ ., data = mice_1)
+rf_class2 <- randomForest(Hypertension ~ ., data = mice_2)
+rf_class3 <- randomForest(Hypertension ~ ., data = mice_3)
+
+```
+
+
+```{r}
+plot(rf_class1)
+```
+```{r}
+rf_preds11 <- predict(rf_class1, mice_test1,type = 'prob')
+rf_preds12 <- predict(rf_class1, mice_test2,type='prob')
+rf_preds13 <- predict(rf_class1, mice_test3,type = 'prob')
+rf_preds21 <- predict(rf_class2, mice_test1, type = 'prob')
+rf_preds22 <- predict(rf_class2, mice_test2, type = 'prob')
+rf_preds23 <- predict(rf_class2, mice_test3, type = 'prob')
+rf_preds31 <- predict(rf_class3, mice_test1, type = 'prob')
+rf_preds32 <- predict(rf_class3, mice_test2, type = 'prob')
+rf_preds33 <- predict(rf_class3, mice_test3, type = 'prob')
+
+```
+```{r}
+rf_preds_init <- (rf_preds11[,2] + rf_preds12[,2] + rf_preds13[,2] + rf_preds21[,2] + rf_preds22[,2] + rf_preds23[,2] + rf_preds31[,2] + rf_preds32[,2] + rf_preds33[,2])/9
+rf_preds <- factor( ifelse(rf_preds_init > .5,
+1, 0))
+
+```
+```{r}
+#rf_preds11[,2]
+```
+
+```{r}
+accuracy_rf <- sum(rf_preds == mice_test1$Hypertension)/nrow(mice_test1)
+auc_rf <- auc(mice_test1$Hypertension, rf_preds)
+print(c(accuracy_rf,auc_rf))
+```
+
+```{r}
+table(rf_preds, mice_test1$Hypertension)
+```
+
