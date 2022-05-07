@@ -1,0 +1,177 @@
+---
+title: "Hypertension Demographics"
+author: "Colin Brant"
+---
+
+Investigation into different demographics in the dataset 
+
+```{r}
+#Loads in 205 variables with at least 10,000 data entries
+load('/Users/colinbrant/Downloads/capstone-main/selected_Winsorized_df.Rdata')
+load('/Users/colinbrant/Downloads/capstone-main/NHANES_Clean.RData')
+df <- select
+df$CBD121[df$CBD121 == 777777] <- NA
+df$WHD110[df$WHD110 == 9999 | df$WHD110 == 7777] <- NA
+head(df)
+```
+
+```{r}
+#All quantative variables available in the select dataset
+quant <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI" , "LBDLDL"  , "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC",   "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+quant_df <- select[, quant]
+quant_df$Hypertension <- select$BPQ020
+quant_df$Waist_Circumference_cm <- select$BMXWAIST
+head(quant_df)
+```
+
+Change coding of Hypertension Response
+```{r}
+quant_df$Hypertension <- as.integer(quant_df$Hypertension)
+quant_df$Hypertension[quant_df$Hypertension == 1] <- 1
+quant_df$Hypertension[quant_df$Hypertension == 2] <- 0
+quant_df$Hypertension <- as.factor(quant_df$Hypertension)
+```
+
+To include gender (RIAGENDR) and age in years (RIDAGEYR)
+```{r}
+quant_df$Age <- select$RIDAGEYR
+quant_df$Gender <- select$RIAGENDR
+Hypertension <- quant_df$Hypertension
+vars <- c('LBDTCSI','CBD121','DBD910','PAD680','WHD020','WHD110','WHD130','BMXHT','BMXBMI', 'BMXLEG', 'BMXARML', 'BMXARMC','Waist_Circumference_cm','Age','Gender', 'Hypertension')
+```
+
+Use mice for imputation 
+Drop all rows where Hypertension is missing so we don't impute responses
+```{r}
+library(mice)
+mice_feed <- quant_df[vars]
+mice_feed <- mice_feed[!is.na(mice_feed$Hypertension),]
+split <- sample(1:nrow(mice_feed), round(nrow(mice_feed) * 0.7))
+train_mice <- mice_feed[split,]
+test_mice <- mice_feed[-split,]
+mice_data2 <- mice(train_mice, m=3, seed = 123)
+test_data <- mice(test_mice, m=3, seed = 123)
+```
+
+Make three different training and testing sets from MICE data
+```{r}
+mice_1 <-complete(mice_data2,1)
+mice_2 <-complete(mice_data2,2)
+mice_3 <-complete(mice_data2,3)
+mice_test1 <- complete(test_data,1)
+mice_test2 <- complete(test_data,2)
+mice_test3 <- complete(test_data,3)
+```
+
+Filter out women from dataset
+```{r}
+male <- filter(mice_1, Gender == 1)
+split_male <- sample(1:nrow(male), round(nrow(male) * 0.7))
+train_male <- male[split,]
+test_male <- male[-split,]
+```
+```{r}
+head(male)
+```
+Filter out males from dataset
+```{r}
+female <- filter(mice_1, Gender == 2)
+split_female <- sample(1:nrow(female), round(nrow(female) * 0.7))
+train_female <- female[split,]
+test_female <- female[-split,]
+```
+Filter out people younger than 55 from dataset
+```{r}
+old <- filter(mice_1, Age > 55)
+split_old <- sample(1:nrow(old), round(nrow(old) * 0.7))
+train_old <- old[split,]
+test_old <- old[-split,]
+```
+Filter out poeple older than 55
+```{r}
+young <- filter(mice_1, Age < 55)
+split_young <- sample(1:nrow(young), round(nrow(young) * 0.7))
+train_young <- young[split,]
+test_young <- young[-split,]
+```
+
+Run svm models on each of the filtered datasets
+```{r}
+library(e1071)
+svm_male <- svm(Hypertension ~ ., data = train_male,type='C-classification',kernel='linear')
+svm_female <- svm(Hypertension ~ ., data = train_female,type='C-classification',kernel='linear')
+svm_old <- svm(Hypertension ~ ., data = train_old,type='C-classification',kernel='linear')
+svm_young <- svm(Hypertension ~ ., data = train_young,type='C-classification',kernel='linear')
+```
+
+```{r}
+male_preds <- predict(svm_male, test_male)
+female_preds <- predict(svm_female, test_female)
+old_preds <- predict(svm_old, test_old)
+young_preds <- predict(svm_young, test_young)
+```
+
+```{r}
+accuracy_male<- sum(male_preds == male$Hypertension)/nrow(male)
+accuracy_female <- sum(female_preds== female$Hypertension)/nrow(female)
+accuracy_old <- sum(old_preds == old$Hypertension)/nrow(old)
+accuracy_young <- sum(young_preds == young$Hypertension)/nrow(young)
+
+```
+
+```{r}
+print(c('male accuracy',accuracy_male))
+print(c('female accuracy', accuracy_female))
+print(c('old accuarcy', accuracy_old))
+print(c('young accuracy', accuracy_young))
+```
+
+We can see that male and female are largely predicted the same. However age makes a big difference in the accuracy of the prediction.
+
+
+
+```{r}
+vars_new <- c('Hypertension','Age','Gender')
+hyp_age_gender <- mice_1[vars_new]
+```
+Check how many old men have Hypertension
+```{r}
+male_old <- filter(hyp_age_gender, Gender == 1 & Age > 55)
+summary(male_old$Hypertension)
+```
+57% percent of men over 55 have Hypertension 
+
+Check how many old women have Hypertension
+```{r}
+female_old <- filter(hyp_age_gender, Gender == 2 & Age > 55)
+summary(female_old$Hypertension)
+```
+61% of females over 55 have Hypertension 
+
+```{r}
+male_young <- filter(hyp_age_gender, Gender == 1 & Age < 55)
+summary(male_young$Hypertension)
+```
+18% of males below the age of 55 have Hypertension 
+```{r}
+female_young <- filter(hyp_age_gender, Gender == 2 & Age < 55)
+summary(female_young$Hypertension)
+```
+17% of females below the age of 55 have Hypertension
+
+
+So we can deduce from the above results that our model predicts both genders much more accurately when the Age is below 55%.
+
+Once the Age reaches 55 our model is not as accurate due to Age being more important than other factors and the distriubtion of Hypertension cases changing drastically 
+
+```{r}
+vals <- c(57,18,61,17)
+n <- c('Men 55 and Older','Men < 55','Women 55 and Older','Women < 55')
+```
+```{r}
+age_bar <- barplot(vals,names.arg=n,xlab="Age Range",ylab="Percent of Population with Hypertension",col="blue",
+main="Percent of Population with Hypertension based on Age",border="red")
+```
+
+
+
