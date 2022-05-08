@@ -1,0 +1,392 @@
+---
+title: "obesity_modeling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(ggplot2)
+library(MASS)
+library(mice)
+library(finalfit)
+library(caret)
+library(randomForest)
+library(tree)
+library(dplyr)
+```
+
+```{r,echo=FALSE}
+df_bmi <- df_full[!(is.na(df_full$BMXBMI)),]
+
+## Remove columns with more than 40% NA
+df_bmi <- df_bmi[, which(colMeans(!is.na(df_bmi)) > 0.4)]
+df_bmi <- subset(df_bmi, select = -c(WTMEC2YR,Year ))
+#df_bmi[is.na(df_bmi)] <- 0
+#stepwise_df <- complete(mice(df_bmi,m=1,method="mean"),1)
+```
+
+```{r,echo=FALSE}
+#stepwise_df <- complete(stepwise_df,1)
+full.model <- glm(BMXBMI ~ .,data=stepwise_df,weights = WTINT2YR)
+step.model <- stepAIC(full.model, direction="forward")
+summary(step.model)
+```
+
+```{r}
+stepwise_cols <- rownames(data.frame(summary(step.model)$coef[summary(step.model)$coef[,4] <= .0005,4]))
+stepwise_cols <- stepwise_cols[-1]
+
+df_bmi <- df_bmi[c("BMXBMI",stepwise_cols)]
+df_bmi <- subset(df_bmi, select = -c(BMXWT,BMXHT))
+```
+
+```{r}
+factor_cols <- c("BPQ020","CBQ506","DBQ235B","DMDHHSZA","DMQMILIZ","MCQ053","MCQ080","PAQ605","RIAGENDR","SIAPROXY","WHQ030","WHQ040")
+df_bmi[factor_cols] <- lapply(df_bmi[factor_cols] , factor)
+```
+
+```{r}
+df_impute <- df_bmi
+df_impute <- df_impute[df_impute$RIDAGEYR > 18,]
+df_impute <- subset(df_impute, select = -c(RIDEXAGM,HSAQUEX))
+```
+
+```{r}
+set.seed(123)
+df_impute_tree <- df_impute
+#df_impute_tree <- subset(df_impute_tree,select=-c(WTINT2YR))
+ind <- sample(2, nrow(df_impute_tree), replace=TRUE, prob = c(0.7,0.3))
+df_impute_tree_train <- df_impute_tree[ind==1,]
+df_impute_tree_test <- df_impute_tree[ind==2,]
+```
+
+```{r}
+imputedTrain <- mice(df_impute_tree_train,m=3)
+imputedTest <- mice(df_impute_tree_test,m=3)
+```
+
+```{r}
+# Make M training sets for M models 
+# Don't average the accuracy, average the ensemble prediction average the most raw thing possible
+#tempData <- mice(imputedTrain,m=3,seed=123)
+```
+
+```{r}
+# Verify discrete variables as factors
+impute_model <- with(imputedTrain, glm(BMXBMI ~ BMXARMC + BMXARML+  BMXLEG + BMXWAIST + BPQ020 + CBQ506 + DBQ235B + DMDHHSZA + DMQMILIZ + MCQ053 + MCQ080 + PAQ605 + RIAGENDR + RIDAGEYR + SIAPROXY + WHQ030 + WHQ040,weights=WTINT2YR))
+summary(pool(impute_model))
+```
+
+```{r}
+res <- resid(impute_model$analyses[[1]])
+
+plot(fitted(impute_model$analyses[[1]]), impute_model$analyses[[1]]$residuals)
+
+qqnorm(impute_model$analyses[[1]]$residuals)
+
+qqline(impute_model$analyses[[1]]$residuals)
+```
+
+```{r}
+ggplot(mapping=aes(fitted(impute_model$analyses[[1]]), impute_model$analyses[[1]]$residuals)) + 
+  geom_point() +
+  ggtitle("Residuals VS Fitted Values for GLM using 1st imputed dataset") +
+  xlab("Fitted Values") + 
+  ylab("Residual Values")
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+# function can click on plot and get row number
+# identify
+# 188  1742  8366  8950 10737 13943 14827 15678 19228
+
+sus_rows <- c(93, 160,  1244,  1336,  1434,  1550,  1572,  1573,  1742,  1858,  3553,  5749,  5756,  7004,  7363,  8366,  8950,  9025,  9420,  9440, 10265, 13652, 13943, 14330, 14827, 15385, 16917, 19228)
+df_sus <- df_impute[sus_rows,]
+
+```
+
+
+```{r}
+res <- resid(impute_model$analyses[[2]])
+
+plot(fitted(impute_model$analyses[[2]]), res)
+
+qqnorm(res)
+
+qqline(res)
+```
+
+```{r}
+res <- resid(impute_model$analyses[[3]])
+
+plot(fitted(impute_model$analyses[[3]]), res)
+
+qqnorm(res)
+
+qqline(res)
+```
+
+```{r}
+yhat_glm11 <- predict(impute_model$analyses[[1]],newdata=complete(imputedTest,1))
+yhat_glm12 <- predict(impute_model$analyses[[1]],newdata=complete(imputedTest,2))
+yhat_glm13 <- predict(impute_model$analyses[[1]],newdata=complete(imputedTest,3))
+
+yhat_glm21 <- predict(impute_model$analyses[[2]],newdata=complete(imputedTest,1))
+yhat_glm22 <- predict(impute_model$analyses[[2]],newdata=complete(imputedTest,2))
+yhat_glm23 <- predict(impute_model$analyses[[2]],newdata=complete(imputedTest,3))
+
+yhat_glm31 <- predict(impute_model$analyses[[3]],newdata=complete(imputedTest,1))
+yhat_glm32 <- predict(impute_model$analyses[[3]],newdata=complete(imputedTest,2))
+yhat_glm33 <- predict(impute_model$analyses[[3]],newdata=complete(imputedTest,3))
+
+pred_glm <- (yhat_glm11 + yhat_glm12 + yhat_glm13 + yhat_glm21 + yhat_glm22 + yhat_glm23 + yhat_glm31 + yhat_glm32 + yhat_glm33)/9
+```
+
+```{r}
+mean_error_glm <- mean(sqrt((pred_glm - test_bmi$BMXBMI)^2))
+mean_error_glm
+```
+
+```{r}
+testdf <- complete(imputedTest,1)
+df_gender_bag <- data.frame(testdf$RIAGENDR,testdf$RIDAGEYR,testdf$BMXBMI,pred_glm)
+
+df_men <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 1,]
+df_women <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 2,]
+
+error_men <- mean(sqrt((df_men$pred_glm - df_men$testdf.BMXBMI)^2))
+error_women <- mean(sqrt((df_women$pred_glm - df_women$testdf.BMXBMI)^2))
+
+error_men / (error_women + error_men)
+error_men
+error_women
+```
+
+
+```{r}
+tree1 <- tree(BMXBMI ~ .-WTINT2YR,data=complete(imputedTrain,1))
+summary(tree1)
+plot(tree1)
+text(tree1,pretty=0)
+```
+
+```{r}
+cv.tree1 <- cv.tree(tree1)
+plot(cv.tree1$size,cv.tree1$dev,type='b')
+```
+
+
+
+```{r}
+tree2 <- tree(BMXBMI ~ .-WTINT2YR,data=complete(imputedTrain,2))
+summary(tree2)
+plot(tree2)
+text(tree2,pretty=0)
+```
+
+```{r}
+tree3 <- tree(BMXBMI ~ .-WTINT2YR,data=complete(imputedTrain,3))
+summary(tree3)
+plot(tree3)
+text(tree3,pretty=0)
+```
+
+```{r}
+# root MSQ
+# Average the predictions not the error
+test_bmi <- complete(imputedTest,1)["BMXBMI"]
+
+yhat11 <- predict(tree1,newdata=complete(imputedTest,1))
+yhat12 <- predict(tree1,newdata=complete(imputedTest,2))
+yhat13 <- predict(tree1,newdata=complete(imputedTest,3))
+
+yhat21 <- predict(tree2,newdata=complete(imputedTest,1))
+yhat22 <- predict(tree2,newdata=complete(imputedTest,2))
+yhat23 <- predict(tree2,newdata=complete(imputedTest,3))
+
+yhat31 <- predict(tree3,newdata=complete(imputedTest,1))
+yhat32 <- predict(tree3,newdata=complete(imputedTest,2))
+yhat33 <- predict(tree3,newdata=complete(imputedTest,3))
+
+pred_avg <- (yhat11 + yhat12 + yhat13 + yhat21 + yhat22 + yhat23 + yhat31 + yhat32 + yhat33)/9
+```
+
+```{r}
+testdf <- complete(imputedTest,1)
+df_gender_bag <- data.frame(testdf$RIAGENDR,testdf$RIDAGEYR,testdf$BMXBMI,pred_avg)
+
+df_men <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 1,]
+df_women <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 2,]
+
+error_men <- mean(sqrt((df_men$pred_avg - df_men$testdf.BMXBMI)^2))
+error_women <- mean(sqrt((df_women$pred_avg - df_women$testdf.BMXBMI)^2))
+
+error_men / (error_women + error_men)
+error_men
+error_women
+```
+
+```{r}
+mean_error <- mean(sqrt((pred_avg - test_bmi$BMXBMI)^2))
+mean_error
+```
+
+```{r}
+bag_rf_1 <- randomForest(BMXBMI ~ .-WTINT2YR, data=complete(imputedTrain,1),importance=TRUE)
+bag_rf_2 <- randomForest(BMXBMI ~ .-WTINT2YR, data=complete(imputedTrain,2),importance=TRUE)
+bag_rf_3 <- randomForest(BMXBMI ~ .-WTINT2YR, data=complete(imputedTrain,3),importance=TRUE)
+```
+
+```{r}
+yhat_bag11 <- predict(bag_rf_1, newdata=complete(imputedTest,1))
+yhat_bag12 <- predict(bag_rf_1, newdata=complete(imputedTest,2))
+yhat_bag13 <- predict(bag_rf_1, newdata=complete(imputedTest,3))
+
+yhat_bag21 <- predict(bag_rf_2, newdata=complete(imputedTest,1))
+yhat_bag22 <- predict(bag_rf_2, newdata=complete(imputedTest,2))
+yhat_bag23 <- predict(bag_rf_2, newdata=complete(imputedTest,3))
+
+yhat_bag31 <- predict(bag_rf_3, newdata=complete(imputedTest,1))
+yhat_bag32 <- predict(bag_rf_3, newdata=complete(imputedTest,2))
+yhat_bag33 <- predict(bag_rf_3, newdata=complete(imputedTest,3))
+```
+
+```{r}
+predbag_avg <- (yhat_bag11 + yhat_bag12 + yhat_bag13 + yhat_bag21 + yhat_bag22 + yhat_bag23 + yhat_bag31 + yhat_bag32 + yhat_bag33)/9
+```
+
+```{r}
+df_gender_bag <- data.frame(testdf$RIAGENDR,testdf$RIDAGEYR,testdf$BMXBMI,predbag_avg)
+
+df_men <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 1,]
+df_women <- df_gender_bag[df_gender_bag$testdf.RIAGENDR == 2,]
+
+error_men <- mean(sqrt((df_men$predbag_avg - df_men$testdf.BMXBMI)^2))
+error_women <- mean(sqrt((df_women$predbag_avg - df_women$testdf.BMXBMI)^2))
+
+error_men / (error_women + error_men)
+error_men
+error_women
+```
+
+```{r}
+mean_error_bag <- mean(sqrt((predbag_avg - test_bmi$BMXBMI)^2))
+mean_error_bag
+```
+
+
+```{r}
+plot(yhat_bag11, complete(imputedTest,1)$BMXBMI)
+abline(0,1)
+```
+
+```{r}
+mean((yhat_bag11-complete(imputedTest,1)$BMXBMI)^2)
+```
+
+
+
+```{r}
+varImpPlot(bag_rf_1)
+# purity is bunk
+```
+
+
+
+
+The following cells are plotting and formatting for charts involved in our final report and presentation
+```{r}
+importa <- importance(bag_rf_1)
+new_row <- c("Arm Circumference (cm)","Upper Arm Length (cm)","Upper Leg Length (cm)","Waist Circumference (cm)","Ever told you had High Blood Pressure","Buy Fast Food","How Often Drank Milk Age 13-17","Number of Children Under 5","Age of Household Owner","Served Active Duty in Military","Taking Treatment for Anemia","Doctor Ever Said you are Overweight","Time Spent Doing Vigorous Activity","Gender","Age","Was Proxy used in Interview","How Respondent Considers Own Weight","Would Respondent like to Change Weight")
+
+rownames(importa) <- new_row
+colnames(importa) <- c("mse","pure")
+
+importa <- data.frame(importa)
+importa["col"] <- rownames(importa)
+importa <- importa[order(importa$mse),]
+
+importa <- importa[-c(1,2,3,4,5,6,7),]
+
+ggplot(importa, mapping=aes(x=reorder(col,mse),y=mse)) +
+  geom_col() + 
+  theme(
+    title = element_text(size=14),
+    axis.text.y = element_text(size = 13)
+  ) +
+  coord_flip() +
+  ggtitle("Variable Importance in Random Forest") +
+  ylab("Importance Score") +
+  xlab("Column Name")
+```
+
+```{r}
+own_weight <- data.frame(df_impute$WHQ030,df_impute$BMXBMI)
+colnames(own_weight) <- c("whq","bmi")
+```
+
+```{r}
+own_weight <- own_weight %>% mutate(weight = case_when(bmi >= 25 ~ 1, bmi <= 18.5 ~ 2, bmi < 25 || bmi > 18.5 ~ 3))
+```
+
+```{r}
+own_weight <- own_weight %>% mutate(equal = case_when(whq == weight ~ 1, TRUE ~ 0))
+```
+
+```{r}
+zeros <- table(own_weight$equal)[1]
+ones <- table(own_weight$equal)[2]
+pie(c(zeros,ones),labels=c("Respondent Wrong About Their Weight", "Respondent Right About Their Weight"))
+```
+
+```{r}
+group = c("Respondent Wrong About Their Weight", "Respondent Right About Their Weight")
+ggplot(data=NULL, mapping=aes(x="",y=c(zeros,ones),fill=group)) +
+  geom_bar(stat="identity") +
+  theme_void() +
+  coord_polar("y",start=0) +
+  theme(
+    title = element_text(size=14),
+    legend.text = element_text(size=15),
+    legend.title = element_text(size=0),
+    ) +
+  ggtitle("Correctness of How Respondent Considers own Weight in BMI")
+```
+
+```{r}
+own_weight_sub <- own_weight[own_weight$equal == 0,]
+own_weight_sub <- own_weight_sub[!(own_weight_sub$whq == 7),]
+own_weight_sub <- own_weight_sub[!(own_weight_sub$whq == 9),]
+table(own_weight_sub$whq)
+```
+
+```{r}
+
+own_weight_sub <- own_weight_sub %>% mutate(ow = case_when(bmi > 25 ~ 1, TRUE ~ 0))
+
+zeros <- table(own_weight_sub$ow)[1]
+ones <- table(own_weight_sub$ow)[2]
+
+group = c("Respondent Is Not Overweight", "Respondent Is Overweight")
+
+ggplot(data=NULL, mapping=aes(x="",y=c(zeros,ones),fill=group)) +
+  geom_bar(stat="identity") +
+  coord_polar("y",start=0) +
+  theme_void() +
+  theme(
+    title = element_text(size=14),
+    legend.text = element_text(size=16),
+    legend.title = element_text(size=0),
+    ) +
+  ggtitle("BMI of Respondents who Answered Incorrectly About Their Weight") +
+  scale_fill_brewer(palette="Dark2")
+```

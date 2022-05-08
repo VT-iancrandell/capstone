@@ -1,0 +1,46 @@
+---
+title: "initial_bmi"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(MASS)
+library(mice)
+library(finalfit)
+```
+
+
+```{r}
+
+bmi_cols <- c("BMXHT","BMXWT")
+df_htwt <- df_full[bmi_cols]
+
+# Metric Calculation done by weight (kg) / (height (m))^2 
+df_bmi <- data.frame(df_htwt$BMXWT/(df_htwt$BMXHT/100)^2)
+colnames(df_bmi) <- "bmi"
+ggplot(df_bmi, mapping=aes(x=bmi)) + 
+  geom_histogram(binwidth=1,center=0.5) +
+  geom_vline(xintercept=25,col='green') +
+  geom_vline(xintercept=30,col='red') +
+  geom_vline(xintercept=18.5,col='blue') +
+  ggtitle(label="BMI of Individuals in NHANES Survey")
+ggsave(filename="bmi_plot.pdf")
+```
+
+```{r}
+df_full$bmi <- df_bmi$bmi
+df_bmi <- 
+
+col_obes <- c("bmi","CBQ645")
+df_obes <- df_full[col_obes]
+
+df_obes <- df_obes[!(is.na(df_obes$CBQ645)),]
+
+model <- lm(bmi ~ ., data=df_obes)
+nrow(df_obes)
+```
