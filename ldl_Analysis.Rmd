@@ -1,0 +1,310 @@
+---
+title: "Capstone Work for LDL Cholesterol"
+author: "Visvas Kaja"
+date: "3/21/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("NHANES_Clean.RData")
+load("selected_Winsorized_df.RData")
+```
+
+There are several columns listed as LDL. Some have the units in mg/dL and others as mmol/L. We will be using mg/dL from the first LDL column.
+```{r}
+hist(df_full$LBDLDL)
+```
+Using the units of mg/dL to represent the levels of LDL cholesterol levels within several hundreds of patients, we can see a simple visual giving a representation of the most common levels of LDL cholesterol.
+
+```{r}
+library(mice)
+library(VIM)
+```
+
+```{r}
+ldl <- df_full[, c('LBDLDL')]
+summary(ldl)
+```
+
+use stepwise regression
+using svm (binary) for one more non neural method, or gradient boosted or random forest (continuous)
+
+
+```{r}
+# stepwise regression
+intercept_only <- lm(LBDLDL ~ 1, data=df_full)
+allPredictors <- lm(LBDLDL ~ LBDTCSI, data=df_full)
+summary(intercept_only)
+print("----------------------")
+summary(allPredictors)
+forward <- step(intercept_only, direction='forward', scope=formula(allPredictors), trace=0)
+print("----------------------")
+summary(forward)
+
+```
+
+```{r}
+forward$anova
+```
+
+```{r}
+backward <- step(allPredictors, direction='backward', scope=formula(allPredictors), trace=0)
+backward$anova
+```
+
+```{r}
+quantitative <- c("LBDHDD", "LBDHDDSI", "LBXTR","LBDTRSI", "LBDLDLSI", "LBXTC"   , "LBDTCSI" , "LBXGLU"  , "LBDGLUSI" ,"CBD121"  , "CBD131"  ,"DBD900"  , "DBD905"  , "DBD910"  , "PAQ625"  , "PAD630"  , "PAQ670"  , "PAD675"  , "PAD680"  , "WHD010"  , "WHD020"  , "WHD050"  , "WHD110", "WHD120" ,  "WHD130"   ,"WHD140" ,  "WHQ150" ,  "BMXWT"  ,  "BMXHT"  ,  "BMXBMI" ,  "BMXLEG" ,  "BMXARML"  ,"BMXARMC",  "BMXWAIST", "BPD035"  ,"INDFMPIR", "WTINT2YR", "WTMEC2YR")
+
+quantitative_df <- select[, quantitative]
+quantitative_df$LDL_Cholesterol <- select$LBDLDL
+```
+
+```{r}
+library(tableone) # we can use this library to summarize variables (both continuous and categorical)
+tab1 <- CreateTableOne(data = quantitative_df)
+summary(tab1)
+```
+
+```{r}
+quantitative_df < quantitative_df[-c(41:44)]
+quantitative_df
+```
+
+```{r}
+miceLdl <- mice(quantitative_df, m=3, seed = 123)
+```
+
+```{r}
+print(miceLdl)
+```
+
+```{r}
+test1 <- complete(miceLdl,1)
+colSums(is.na(test1))
+```
+
+```{r}
+no_nas <- na.omit(test1)
+no_nas
+mice_table <- CreateTableOne(data = no_nas)
+summary(mice_table)
+```
+
+```{r}
+# mice_mod1 <- glm(LDL_Cholesterol ~ ., data = no_nas, family = 'binomial')
+mice_mod1 <- lm(LDL_Cholesterol ~ ., data=no_nas)
+summary(mice_mod1)
+print("---------------------------------")
+forwardMice <- step(mice_mod1, direction='forward')
+summary(forwardMice)
+```
+
+```{r}
+# we can use Random Forest for classification and regression
+library(randomForest)
+require(caTools)
+```
+
+First, we need to train and test our data set before using random forest method on it.
+```{r}
+sample = sample.split(no_nas$LDL_Cholesterol, SplitRatio = .75)
+train = subset(no_nas, sample == TRUE)
+test  = subset(no_nas, sample == FALSE)
+dim(train)
+dim(test)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+names(test)[names(test) == "LBDHDD"] <- "Direct HDL Cholesterol mg/dL"
+names(test)[names(test) == "LBDHDDSI"] <- "Direct HDL Cholesterol mmol/L"
+names(test)[names(test) == "LBXTR"] <- "Triglyceride (mg/dL)"
+names(test)[names(test) == "LBDTRSI"] <- "Triglyceride (mmol/L) "
+names(test)[names(test) == "LBDLDLSI"] <- "LDL Cholesterol (mmol/L) "
+names(test)[names(test) == "LBXTC"] <- "Total Cholesterol (mg/dL)"
+names(test)[names(test) == "LBDTCSI"] <- "Total Cholesterol (mmol/L)"
+names(test)[names(test) == "LBDGLUSI"] <- "Fasting Glucose (mmol/L)"
+names(test)[names(test) == "WHQ150"] <- "Age when heaviest weight"
+names(test)[names(test) == "BMXWT"] <- "Weight (kg)"
+names(test)[names(test) == "BMXHT"] <- "Standing Height (cm)"
+names(test)[names(test) == "BMXBMI"] <- "Body Mass Index (kg/m**2)"
+names(test)[names(test) == "BMXLEG"] <- "Upper Leg Length (cm) "
+names(test)[names(test) == "BMXARMC"] <- "Arm Circumference (cm)"
+names(test)[names(test) == "BMXWAIST"] <- "Waist Circumference (cm)"
+
+
+names(train)[names(train) == "LBDHDD"] <- "Direct HDL Cholesterol mg/dL"
+names(train)[names(train) == "LBDHDDSI"] <- "Direct HDL Cholesterol mmol/L"
+names(train)[names(train) == "LBXTR"] <- "Triglyceride (mg/dL)"
+names(train)[names(train) == "LBDTRSI"] <- "Triglyceride (mmol/L) "
+names(train)[names(train) == "LBDLDLSI"] <- "LDL Cholesterol (mmol/L) "
+names(train)[names(train) == "LBXTC"] <- "Total Cholesterol (mg/dL)"
+names(train)[names(train) == "LBDTCSI"] <- "Total Cholesterol (mmol/L)"
+names(train)[names(train) == "LBDGLUSI"] <- "Fasting Glucose (mmol/L)"
+names(train)[names(train) == "WHQ150"] <- "Age when heaviest weight"
+names(train)[names(train) == "BMXWT"] <- "Weight (kg)"
+names(train)[names(train) == "BMXHT"] <- "Standing Height (cm)"
+names(train)[names(train) == "BMXBMI"] <- "Body Mass Index (kg/m**2)"
+names(train)[names(train) == "BMXLEG"] <- "Upper Leg Length (cm) "
+names(train)[names(train) == "BMXARMC"] <- "Arm Circumference (cm)"
+names(train)[names(train) == "BMXWAIST"] <- "Waist Circumference (cm)"
+
+```
+
+
+```{r}
+random.forest <- randomForest(LDL_Cholesterol ~ ., data = train)
+```
+
+```{r}
+random.forest
+```
+
+```{r}
+pred <- predict(random.forest, newdata = test)
+pred
+```
+
+```{r}
+# confusionMatrix <- table(test[, 39], pred) # only use confusion matrix if it is classification
+# confusionMatrix
+```
+
+
+```{r}
+set.seed(123)
+classifier_RF <- randomForest(x = train[-39],
+                             y = train$LDL_Cholesterol,
+                             ntree = 500, importance = TRUE)
+```
+
+```{r}
+classifier_RF
+y_pred = predict(classifier_RF, newdata = test[-39])
+```
+
+```{r}
+confusion_mtx = table(test[, 39], y_pred)
+confusion_mtx
+```
+
+```{r}
+length(test[, 39]) 
+length(y_pred)
+```
+
+```{r}
+plot(classifier_RF)
+```
+
+```{r}
+# names(test)[names(test) == "LBDHDD"] <- "Direct HDL Cholesterol mg/dL"
+# names(test)[names(test) == "LBDHDDSI"] <- "Direct HDL Cholesterol mmol/L"
+# names(test)[names(test) == "LBXTR"] <- "Triglyceride (mg/dL)"
+# names(test)[names(test) == "LBDTRSI"] <- "Triglyceride (mmol/L) "
+# names(test)[names(test) == "LBDLDLSI"] <- "LDL Cholesterol (mmol/L) "
+# names(test)[names(test) == "LBXTC"] <- "Total Cholesterol (mg/dL)"
+# names(test)[names(test) == "LBDTCSI"] <- "Total Cholesterol (mmol/L)"
+# names(test)[names(test) == "LBDGLUSI"] <- "Fasting Glucose (mmol/L)"
+# names(test)[names(test) == "WHQ150"] <- "Age when heaviest weight"
+# names(test)[names(test) == "BMXWT"] <- "Weight (kg)"
+# names(test)[names(test) == "BMXHT"] <- "Standing Height (cm)"
+# names(test)[names(test) == "BMXBMI"] <- "Body Mass Index (kg/m**2)"
+# names(test)[names(test) == "BMXLEG"] <- "Upper Leg Length (cm) "
+# names(test)[names(test) == "BMXARMC"] <- "Arm Circumference (cm)"
+# names(test)[names(test) == "BMXWAIST"] <- "Waist Circumference (cm)"
+
+importanceData <- as.data.frame(importance(classifier_RF))
+importanceData <- select(as.data.frame(importance(classifier_RF)),-c("IncNodePurity"))
+importanceData
+importanceDataNew <- importanceData
+keepRows <- c("LBDHDD","LBDHDDSI","LBXTR","LBDTRSI","LBDLDLSI","LBXTC","LBDTCSI","LBDGLUSI","WHQ150","BMXWT","BMXHT","BMXBMI","BMXLEG","BMXARMC",
+                    "BMXWAIST")
+importanceDataNew <- as.data.frame(importanceData[rownames(importanceData) %in% keepRows, ])
+
+colnames(importanceDataNew) <- '%IncMSE'
+
+rownames(importanceDataNew) <- c("Direct HDL Cholesterol (mg/dL)", "Direct HDL Cholesterol mmol/L",
+                                 "Triglyceride (mg/dL)", "Triglyceride (mmol/L) ",  "LDL Cholesterol (mmol/L)",
+                                 "Total Cholesterol (mg/dL)", "Total Cholesterol (mmol/L)",
+                                 "Fasting Glucose (mmol/L)",  "Age when heaviest weight", "Weight (kg)",
+                                 "Standing Height (cm)","Body Mass Index (kg/m**2)","Upper Leg Length (cm)",
+                                 "Arm Circumference (cm)","Waist Circumference (cm)")
+```
+```{r}
+plot(importanceDataNew)
+```
+
+
+
+Direct HDL as the most important factor, measured in mg/dL.
+```{r}
+library(vip)
+```
+
+```{r}
+#importanceDataNew = importanceDataNew[order(importanceDataNew$MeanDecreaseAccuracy),]
+importanceDataNew$vars = factor(importanceDataNew$vars, levels=unique(importanceDataNew$vars))
+```
+
+
+```{r}
+importanceDataNew %>% 
+  pivot_longer(cols=matches("%IncMSE")) %>% 
+  ggplot(aes(value, vars)) +
+  geom_col() +
+  geom_text(aes(label=round(value), x=0.5*value), size=3, colour="white") +
+  facet_grid(. ~ name, scales="free_x") +
+  scale_x_continuous(expand=expansion(c(0,0.04))) +
+  theme_bw() +
+  theme(panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title=element_blank())
+```
+
+
+
+```{r}
+varImpPlot(classifier_RF, n.var = 15, type = 1, main = "Variable Importance Using Random Forest")
+```
+
+
+```{r}
+library(ISLR)
+require(tree)
+```
+
+
+```{r}
+ldl.tree <- tree(LDL_Cholesterol ~ ., data = train)
+ldl.tree
+```
+
+
+```{r}
+plot(ldl.tree, lwd = 2)
+text(ldl.tree, cex = 1.3)
+summary(ldl.tree)
+```
+```{r}
+ldl.glm <- glm(LDL_Cholesterol ~ ., data = train)
+summary(ldl.glm)
+```
+
+```{r}
+plot(ldl.glm)
+```
+
+```{r}
+# get_mse(ldl.glm)
+```
+
+
+
